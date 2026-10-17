@@ -1,0 +1,586 @@
+{
+  "name": "INTA Chivilcoy - Lectura de informantes",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "b05e7bfa-334f-438b-af12-5fb42658911b",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Informantes"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "telefono",
+              "lookupValue": "={{ $('Edit Fields').first().json.mensaje.match(/\\+\\d{8,15}/)?.[0] }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1456,
+        528
+      ],
+      "id": "aa203d87-9103-407c-b857-68065e12ef66",
+      "name": "Get row(s) in sheet",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "386d0807-6e29-47e3-8ece-857cf3d1dd10",
+              "name": "mensaje",
+              "value": "[+5492346000001] Después de la última medición cayeron 2 mm más.",
+              "type": "string"
+            },
+            {
+              "id": "4e91ed1d-8ae7-428e-86f9-5650f9215d6e",
+              "name": "fecha_mensaje",
+              "value": "2026-10-12 13:00",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "6f59075e-0798-4f2c-93c3-648170d62b03",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.mensaje}}",
+        "options": {
+          "systemMessage": "Sos un asistente especializado en interpretar mensajes de precipitaciones rurales del Partido de Chivilcoy, provincia de Buenos Aires, Argentina.\n\nTu tarea es extraer información de mensajes informales enviados por productores.\n\nReglas:\n1. Identificá la localidad mencionada, si existe.\n2. Extraé la cantidad de lluvia en milímetros como número.\n3. Clasificá el registro como TOTAL, ADICIONAL, CORRECCION o AMBIGUO.\n4. Si el mensaje dice 'mm más', clasificá como ADICIONAL. No calcules el acumulado sin conocer registros anteriores.\n5. Si dice 'en total', clasificá como TOTAL, salvo que indique explícitamente que corrige un dato anterior.\n6. Si no se informa una localidad, dejala como null. No la inventes.\n7. Si no se informa una cantidad, dejala como null.\n8. Un valor explícito de 0 mm es válido y no equivale a un dato faltante.\n9. No inventes fechas, localidades ni cantidades.\n10. Todo registro requiere validación humana antes de incorporarse a la base definitiva.\n\nRespondé exclusivamente con un objeto JSON válido, sin explicaciones ni bloques de Markdown, con estas claves: localidad, milimetros, tipo_registro, requiere_revision.\n\nUsá requiere_revision=true cuando falte información o el mensaje sea ambiguo. En los demás casos, usá false para indicar que la extracción es clara, sin que eso implique aprobación humana."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        592,
+        144
+      ],
+      "id": "4a07047b-2201-43b9-9339-5e3d74b84eda",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        464,
+        352
+      ],
+      "id": "c4499b2a-b8f7-41f2-9509-e85254490289",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => {\n  try {\n    const respuesta = item.json.output ?? item.json['producción'];\n    const datos = typeof respuesta === 'string'\n      ? JSON.parse(respuesta.replace(/^```(?:json)?\\s*|\\s*```$/g, '').trim())\n      : respuesta;\n\n    if (!datos || typeof datos !== 'object' || Array.isArray(datos)) {\n      throw new Error('Respuesta sin objeto JSON válido');\n    }\n\n    return {\n      json: {\n        localidad: datos.localidad ?? null,\n        milimetros: datos.milimetros ?? null,\n        tipo_registro: datos.tipo_registro ?? 'AMBIGUO',\n        requiere_revision: datos.requiere_revision !== false,\n        estado: 'PENDIENTE_VALIDACION'\n      }\n    };\n  } catch (error) {\n    return {\n      json: {\n        estado: 'ERROR_INTERPRETACION',\n        requiere_revision: true,\n        detalle_error: error.message\n      }\n    };\n  }\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        -80
+      ],
+      "id": "803c65e5-46f7-4494-937d-bdce939f4884",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "jsCode": "const interpretacion = $('Code in JavaScript').first().json;\nconst mensaje = $('Edit Fields').first().json.mensaje || '';\n\nconst puntos = $input.all()\n  .map(item => item.json)\n  .filter(punto => punto.id_punto);\n\nif (puntos.length !== 1 || puntos[0].activo !== 'SI') {\n  return [{\n    json: {\n      localidad: interpretacion.localidad ?? null,\n      id_punto: null,\n      milimetros: interpretacion.milimetros ?? null,\n      tipo_registro: interpretacion.tipo_registro,\n      requiere_revision: true,\n      estado: 'PENDIENTE_IDENTIFICACION',\n      motivo: puntos.length === 0\n        ? 'Informante no encontrado'\n        : 'Informante duplicado o inactivo'\n    }\n  }];\n}\n\nconst punto = puntos[0];\n\nconst fecha_mensaje = $('Edit Fields').first().json.fecha_mensaje || null;\nreturn [{\n  json: {\n    id_punto: punto.id_punto,\n    localidad: punto.localidad,\n    telefono: punto.telefono ?? null,\nfecha_mensaje: fecha_mensaje,\nmensaje_original: mensaje,\n    milimetros: interpretacion.milimetros ?? null,\n    tipo_registro: interpretacion.tipo_registro,\n    requiere_revision: true,\n    estado: 'PENDIENTE_VALIDACION',\n    activo: punto.activo,\n    tipo_fuente: punto.tipo_fuente\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        -144
+      ],
+      "id": "de60dcf8-643b-463c-af9a-cf70d3371dd3",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\n\nreturn items.map(item => {\n  const mensaje = item.json.mensaje || \"\";\n\n  // Separar fecha, remitente y contenido del mensaje\n  const patron = /^\\[([^\\]]+)\\]\\s+(.+?):\\s+([\\s\\S]*)$/;\n  const resultado = mensaje.match(patron);\n\n  if (!resultado) {\n    return {\n      json: {\n        mensaje_original: mensaje,\n        estado: \"PENDIENTE_REVISION\",\n        motivo: \"No se pudo identificar el formato del mensaje\"\n      }\n    };\n  }\n\n  const fecha = resultado[1];\n  const remitente = resultado[2].trim();\n  const texto = resultado[3].trim();\n\n  // Detectar si el remitente es un número de teléfono\n  const telefono = /^\\+?[\\d\\s()-]{8,}$/.test(remitente)\n    ? remitente.replace(/[^\\d+]/g, \"\")\n    : null;\n\n  return {\n    json: {\n      fecha_mensaje: fecha,\n      remitente: remitente,\n      telefono: telefono,\n      nombre_whatsapp: telefono ? null : remitente,\n      texto_mensaje: texto,\n      estado: \"PENDIENTE_IDENTIFICACION\"\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        -96
+      ],
+      "id": "a54adfc4-85d8-409f-bd70-f0b2d1eb7e66",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1781258019,
+          "mode": "list",
+          "cachedResultName": "Registros"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_punto": "={{ $json.id_punto }}",
+            "milimetros": "={{ $json.milimetros }}",
+            "fecha_mensaje": "={{ $json.fecha_mensaje }}",
+            "validado": "NO",
+            "id_registro": "={{ 'REG-' + $execution.id + '-' + $itemIndex }}",
+            "id_evento": "={{ $json.id_evento }}",
+            "fuente": "={{ $json.fuente }}",
+            "id_mensaje": "={{ $json.id_mensaje }}",
+            "tipo_registro": "={{ $json.tipo_registro }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "id_registro",
+              "displayName": "id_registro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "id_evento",
+              "displayName": "id_evento",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "id_punto",
+              "displayName": "id_punto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "milimetros",
+              "displayName": "milimetros",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fecha_mensaje",
+              "displayName": "fecha_mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "fuente",
+              "displayName": "fuente",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "validado",
+              "displayName": "validado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "id_mensaje",
+              "displayName": "id_mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "tipo_registro",
+              "displayName": "tipo_registro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1952,
+        448
+      ],
+      "id": "a4c8cc1a-efd5-49dd-a096-f3fad6363754",
+      "name": "Append row in sheet"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 891389047,
+          "mode": "list",
+          "cachedResultName": "Eventos"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "estado",
+              "lookupValue": "ABIERTO"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1440,
+        -32
+      ],
+      "id": "9e1236cb-0113-4d28-95f6-d7e5d2aa7944",
+      "name": "Get row(s) in sheet1"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst eventos = $input.all().map(item => item.json);\n\nif (eventos.length !== 1 || !eventos[0].id_evento) {\n  throw new Error(\n    'Debe existir exactamente un evento abierto con identificador.'\n  );\n}\n\nconst evento = eventos[0];\n\nreturn [{\n  json: {\n    id_evento: evento.id_evento,\n    fecha_inicio: evento.fecha_inicio,\n    fecha_fin: evento.fecha_fin,\n    estado: evento.estado\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        -32
+      ],
+      "id": "1c254c9a-5fb1-4877-8996-7b822fcebc5a",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst registro = $('Code in JavaScript1').first().json;\nconst evento = $('Code in JavaScript3').first().json;\n\nif (!registro.id_punto || registro.milimetros == null) {\n  throw new Error('Faltan datos del registro de precipitaciones');\n}\n\nif (!evento.id_evento || evento.estado !== 'ABIERTO') {\n  throw new Error('No se encontró un evento abierto válido');\n}\n\n// Generar identificador estable del mensaje\nconst textoIdentificador = [\n  evento.id_evento,\n  registro.id_punto,\n  registro.fecha_mensaje,\n  registro.mensaje_original\n].map(valor => String(valor ?? '')).join('|');\n\nif (!registro.fecha_mensaje || !registro.mensaje_original) {\n  throw new Error('Faltan datos para identificar el mensaje');\n}\n\n// Hash sencillo y determinístico\nlet hash = 2166136261;\nfor (let i = 0; i < textoIdentificador.length; i++) {\n  hash ^= textoIdentificador.charCodeAt(i);\n  hash = Math.imul(hash, 16777619);\n}\n\nconst idMensaje = 'MSG-' + (hash >>> 0).toString(16).padStart(8, '0');\n\nreturn [{\n  json: {\n    id_evento: evento.id_evento,\n    id_punto: registro.id_punto,\n    localidad: registro.localidad,\n    milimetros: registro.milimetros,\n    fecha_mensaje: registro.fecha_mensaje,\n    fuente: registro.tipo_fuente,\n    tipo_registro: registro.tipo_registro,\n    mensaje_original: registro.mensaje_original,\n    id_mensaje: idMensaje,\n    validado: 'NO',\n    estado: 'PENDIENTE_VALIDACION'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1856,
+        -32
+      ],
+      "id": "1070a45e-e903-43f4-945e-d1b91c7e69f5",
+      "name": "Code in JavaScript4"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1781258019,
+          "mode": "list",
+          "cachedResultName": "Registros"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id_mensaje",
+              "lookupValue": "={{ $('Code in JavaScript4').first().json.id_mensaje }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2064,
+        16
+      ],
+      "id": "e964c0d9-d296-49e7-b802-07391a2c1340",
+      "name": "Get row(s) in sheet2",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst nuevo = $('Code in JavaScript4').first().json;\n\n// Registros encontrados en Google Sheets\nconst existentes = $input.all()\n  .map(item => item.json)\n  .filter(fila => fila.id_mensaje);\n\n// Verificar si el mensaje ya fue registrado\nconst duplicado = existentes.some(\n  fila => String(fila.id_mensaje) === String(nuevo.id_mensaje)\n);\n\nreturn [{\n  json: {\n    ...nuevo,\n    duplicado: duplicado,\n    accion: duplicado ? 'OMITIR' : 'GUARDAR'\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2256,
+        16
+      ],
+      "id": "9eaaedaf-c342-4822-a87f-d11937918303",
+      "name": "Code in JavaScript5"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "339ce755-1d5b-475e-bd9d-c59f2b17c4dd",
+              "leftValue": "={{ $json.accion }}",
+              "rightValue": "GUARDAR",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2480,
+        16
+      ],
+      "id": "8fae43fd-1643-4372-8c87-c036cac50cd1",
+      "name": "If"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        []
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        []
+      ]
+    },
+    "Get row(s) in sheet1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript4": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet2": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript5": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
