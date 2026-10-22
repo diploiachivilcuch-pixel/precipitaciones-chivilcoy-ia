@@ -26,6 +26,7 @@ La solución busca reducir tareas repetitivas, mejorar la trazabilidad de los da
 - **Google Gemini:** interpretación de mensajes mediante inteligencia artificial generativa.
 - **Google Sheets:** almacenamiento de informantes, eventos, registros y acumulados.
 - **JavaScript:** normalización de datos, identificación de mensajes y control de duplicados.
+- **HTML, CSS y JavaScript:** interfaz web demostrativa de revisión, mapas e informes locales.
 - **GitHub:** documentación y presentación del prototipo.
 
 ## 4. Funcionamiento del prototipo
@@ -92,15 +93,47 @@ El prototipo presenta limitaciones que deberán abordarse en futuras etapas:
 - La identificación del informante depende del formato utilizado en los mensajes de prueba.
 - La clasificación de mensajes mediante IA puede cometer errores.
 - Los cálculos de acumulados se probaron en escenarios determinados, pero no se validaron todas las combinaciones posibles de mensajes `TOTAL`, correcciones y registros fuera de orden.
-- La aprobación humana todavía se representa mediante campos de Google Sheets y no mediante una interfaz específica.
-- La generación automática de mapas e informes finales no forma parte del flujo de n8n actualmente implementado.
+- En el flujo de n8n, la aprobación humana todavía se representa mediante campos de Google Sheets.
+- La interfaz web V5 ofrece revisión y visualización local, pero no está integrada con n8n ni con Google Sheets.
+- Los mapas y borradores de informes de la V5 no se generan automáticamente desde el flujo de n8n ni constituyen documentos oficiales.
 
 ## 9. Próximos desarrollos
 
-Se propone continuar con la ampliación de las pruebas, el tratamiento de mensajes ambiguos, la mejora de la identificación de informantes, la automatización de los controles de revisión y la generación de productos de comunicación, como tablas, mapas e informes de precipitaciones.
+Se propone continuar con la ampliación de las pruebas, el tratamiento de mensajes ambiguos, la mejora de la identificación de informantes, la automatización de los controles de revisión y la integración futura entre el flujo de n8n y la interfaz V5.
 
 ## 10. Alcance
 
 Este proyecto es un **prototipo académico y experimental**. Utiliza datos de prueba y no reemplaza los procedimientos oficiales de registro, validación y publicación de información del INTA.
 
 Su propósito es demostrar cómo la inteligencia artificial generativa, combinada con herramientas de automatización, puede contribuir a mejorar procesos de trabajo existentes.
+
+## 11. Interfaz web demostrativa (V5)
+
+Se incluye `Prototipo_Precipitaciones_Chivilcoy_V5_PUBLICO.html`, una versión autónoma para abrir en un navegador web. Permite explorar la carga y revisión local de mensajes, mapas cartográficos de eventos y acumulados mensuales, y la preparación de **borradores** de informes imprimibles.
+
+**Importante:** esta interfaz utiliza reglas programadas y datos locales; **no llama a Gemini, no ejecuta el flujo de n8n y no se sincroniza con Google Sheets**. Su propósito es ilustrar una posible experiencia de uso. Los resultados requieren revisión humana y los informes no son certificaciones oficiales.
+
+La versión incluida en este repositorio fue **anonimizada para difusión pública**: los contactos y teléfonos son ficticios y los mensajes de ejemplo son sintéticos. No deben utilizarse para identificar informantes reales.
+
+### Cómo probar la V5
+
+1. Descargar el archivo HTML.
+2. Abrirlo en un navegador actualizado.
+3. Utilizar los ejemplos ficticios precargados o cargar mensajes de prueba.
+4. Explorar las secciones de revisión, mapas e informes.
+
+La información guardada localmente en el navegador no se transmite a la planilla del flujo n8n.
+
+## 12. Cómo reutilizar el flujo n8n publicable
+
+El archivo `Flujo_n8n_Chivilcoy_version_publicable.json` es una **exportación de referencia**, no una automatización lista para ejecutar sin configuración. Para reproducirla se necesita importar el JSON en n8n, configurar el acceso a Gemini, crear o seleccionar una planilla propia de Google Sheets con las hojas y columnas esperadas, y reemplazar los identificadores de planilla de ejemplo (`CONFIGURAR_ID_DE_TU_PLANILLA`). Se recomienda probarlo exclusivamente con datos ficticios.
+
+No se publican credenciales ni números de teléfono reales en el flujo publicable.
+
+## 13. Evidencia visual
+
+- `01 - Flujo general n8n.png`: arquitectura general.
+- `02 - Interpretación con Gemini.png`: configuración e interpretación.
+- `03 - Registros automáticos.png`: registros almacenados.
+- `04 - Acumulados y validación humana.png`: acumulados y revisión.
+- `05 - Mapa V5 demostrativo.png`: visualización cartográfica local.
