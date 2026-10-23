@@ -33,7 +33,7 @@ La solución busca reducir tareas repetitivas, mejorar la trazabilidad de los da
 
 El flujo desarrollado realiza las siguientes operaciones:
 
-1. Recibe un mensaje de prueba ingresado manualmente.
+1. Recibe mensajes de prueba ingresados manualmente o enviados desde una página HTML de prueba mediante un webhook de n8n.
 2. Envía su contenido a Gemini para interpretar la cantidad de lluvia y el tipo de registro.
 3. Identifica al informante mediante un número de teléfono ficticio incluido en el mensaje de prueba.
 4. Consulta la base de informantes y determina el punto de medición correspondiente.
@@ -77,6 +77,26 @@ Asimismo, se verificó la identificación del evento abierto y el control de men
 
 Estas pruebas corresponden a escenarios específicos y no constituyen una validación exhaustiva del sistema.
 
+### 6.1. Prueba de recepción desde HTML y control de duplicados
+
+El 23 de octubre de 2026 se realizó una prueba adicional para verificar la recepción de mensajes desde una página HTML de prueba hacia el flujo de automatización desarrollado en n8n.
+
+Se enviaron tres mensajes ficticios mediante una solicitud HTTP POST a un webhook de n8n:
+
+- "En mi campo llovieron 12 mm".
+- "Acá cayeron 8 mm".
+- "Después cayeron 3 mm más".
+
+El flujo recibió correctamente los tres mensajes y los procesó mediante Google Gemini, que interpretó los valores de precipitación y clasificó los dos primeros como registros de tipo `TOTAL` y el tercero como `ADICIONAL`.
+
+Posteriormente, mediante código JavaScript, se normalizaron los resultados y se generaron identificadores para cada registro.
+
+Al consultar Google Sheets, el sistema identificó que los tres registros ya se encontraban almacenados. El control de duplicados los clasificó como `DUPLICADO` y el nodo de filtrado de n8n descartó los tres mensajes, impidiendo que avanzaran nuevamente hacia la operación de carga.
+
+**Resultado:** se comprobó experimentalmente la recepción de mensajes desde una página HTML, su interpretación mediante inteligencia artificial y el funcionamiento del mecanismo de prevención de duplicados.
+
+Esta prueba se realizó mediante la ejecución y verificación de los distintos nodos del flujo. No representa todavía una integración automática con WhatsApp ni con la interfaz demostrativa V5.
+
 ## 7. Validación humana
 
 La solución está diseñada como una herramienta de apoyo, no como un sistema que aprueba automáticamente los datos.
@@ -89,7 +109,7 @@ La decisión final sobre la aceptación de los datos permanece bajo responsabili
 
 El prototipo presenta limitaciones que deberán abordarse en futuras etapas:
 
-- No existe todavía una integración automática con WhatsApp.
+- No existe todavía una integración automática con WhatsApp. Se comprobó la recepción mediante un webhook desde una página HTML independiente, pero esta conexión permanece en etapa experimental.
 - La identificación del informante depende del formato utilizado en los mensajes de prueba.
 - La clasificación de mensajes mediante IA puede cometer errores.
 - Los cálculos de acumulados se probaron en escenarios determinados, pero no se validaron todas las combinaciones posibles de mensajes `TOTAL`, correcciones y registros fuera de orden.
