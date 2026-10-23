@@ -1,0 +1,391 @@
+{
+  "name": "INTA Chivilcoy - Prueba procesamiento TXT",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "CONFIGURAR_RUTA_WEBHOOK",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "3aeb9dae-644f-42ae-91d6-375d9b88e77a",
+      "name": "Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst entrada = $input.first().json;\n\nlet datos = entrada.body;\n\nif (typeof datos === 'string') {\n  datos = JSON.parse(datos);\n}\n\nif (!datos || !Array.isArray(datos.mensajes)) {\n  throw new Error('No se recibió una lista de mensajes');\n}\n\nreturn datos.mensajes.map((mensaje, indice) => ({\n  json: {\n    telefono: mensaje.telefono || null,\n    mensaje: mensaje.mensaje || '',\n    fecha: mensaje.fecha || null,\n    origen: 'HTML_V5_TXT',\n    numero_mensaje: indice + 1\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ],
+      "id": "30718755-ae0b-41f8-83ed-87f627983082",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.mensaje }}",
+        "options": {
+          "systemMessage": "\nSos un asistente de inteligencia artificial que interpreta mensajes de precipitaciones rurales para un prototipo experimental de la AER Chivilcoy del INTA.\n\nTu tarea es extraer la información meteorológica del mensaje recibido. No debés inventar datos ni completar información que no esté expresada.\n\nREGLAS:\n\n1. Identificá los milímetros de lluvia informados.\n2. Si el mensaje indica que no llovió o que cayeron 0 mm, registrá milimetros = 0. No confundas ausencia de lluvia con ausencia de información.\n3. Clasificá el mensaje en una de estas categorías:\n   - TOTAL: informa una cantidad de lluvia sin indicar que sea adicional o una corrección.\n   - ADICIONAL: informa lluvia caída después de una medición anterior, por ejemplo \"3 mm más\".\n   - CORRECCION: rectifica explícitamente una cantidad informada anteriormente.\n   - AMBIGUO: no permite identificar con suficiente certeza el dato o su significado.\n4. Si el mensaje no contiene una localidad identificable, utilizá null.\n5. Si no es posible identificar los milímetros, utilizá null.\n6. Marcá requiere_revision = true cuando el mensaje sea ambiguo, adicional, una corrección o falte información necesaria para interpretarlo con seguridad.\n7. No sumes cantidades de mensajes diferentes. Esa operación corresponde a otra etapa del sistema.\n8. No inventes fechas, localidades, informantes ni precipitaciones.\n9. No agregues explicaciones fuera del resultado solicitado.\n\nRespondé exclusivamente con un objeto JSON válido, sin bloques Markdown, con esta estructura:\n\n{\n  \"localidad\": null,\n  \"milimetros\": null,\n  \"tipo_registro\": \"AMBIGUO\",\n  \"requiere_revision\": true\n}\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "051ab20e-99a8-48f5-adf1-49e58872ce80",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        208
+      ],
+      "id": "2ec1827f-3405-4d91-964d-5be30aa8f7b2",
+      "name": "Google Gemini Chat Model"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst resultados = $input.all();\nconst originales = $('Code in JavaScript').all();\n\nif (resultados.length !== originales.length) {\n  throw new Error('No coincide la cantidad de respuestas con los mensajes originales');\n}\n\nfunction generarId(telefono, fecha, mensaje) {\n  const texto = JSON.stringify([\n    String(telefono ?? '').trim(),\n    String(fecha ?? '').trim(),\n    String(mensaje ?? '').trim()\n  ]);\n\n  let hash = 2166136261;\n\n  for (let i = 0; i < texto.length; i++) {\n    hash ^= texto.charCodeAt(i);\n    hash = Math.imul(hash, 16777619);\n  }\n\n  return 'TXT-' + (hash >>> 0).toString(16).padStart(8, '0');\n}\n\nreturn resultados.map((item, indice) => {\n  const original = originales[indice].json;\n\n  try {\n    let texto = item.json.output;\n\n    // Eliminar posibles delimitadores Markdown\n    if (typeof texto === 'string') {\n      texto = texto.trim()\n        .replace(/^```(?:json)?\\s*/i, '')\n        .replace(/\\s*```$/, '');\n    }\n\n    const interpretacion =\n      typeof texto === 'string' ? JSON.parse(texto) : texto;\n\n    const tiposValidos = ['TOTAL', 'ADICIONAL', 'CORRECCION', 'AMBIGUO'];\n\n    if (\n      !interpretacion ||\n      !tiposValidos.includes(interpretacion.tipo_registro) ||\n      (\n        interpretacion.milimetros !== null &&\n        (\n          typeof interpretacion.milimetros !== 'number' ||\n          !Number.isFinite(interpretacion.milimetros) ||\n          interpretacion.milimetros < 0\n        )\n      )\n    ) {\n      throw new Error('Respuesta de Gemini con valores inválidos');\n    }\n\n    return {\n      json: {\n        telefono: original.telefono,\n        mensaje: original.mensaje,\n        fecha: original.fecha,\n        origen: original.origen,\n        numero_mensaje: original.numero_mensaje,\n        localidad: interpretacion.localidad ?? null,\n        milimetros: interpretacion.milimetros ?? null,\n        tipo_registro: interpretacion.tipo_registro,\n        requiere_revision:\n          interpretacion.requiere_revision === true ||\n          interpretacion.tipo_registro !== 'TOTAL',\n        validado: 'NO',\n        id_registro: generarId(original.telefono, original.fecha, original.mensaje)\n      }\n    };\n\n  } catch (error) {\n    return {\n      json: {\n        telefono: original.telefono,\n        mensaje: original.mensaje,\n        fecha: original.fecha,\n        origen: original.origen,\n        numero_mensaje: original.numero_mensaje,\n        localidad: null,\n        milimetros: null,\n        tipo_registro: 'AMBIGUO',\n        requiere_revision: true,\n        validado: 'NO',\n        id_registro: generarId(original.telefono, original.fecha, original.mensaje),\n        error_interpretacion: error.message\n      }\n    };\n  }\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        0
+      ],
+      "id": "22d41dce-7ce5-40e1-94c5-7667d66c32b2",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_HOJA",
+          "mode": "id"
+        },
+        "filtersUI": {
+          "values": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1040,
+        0
+      ],
+      "id": "a1d014a0-993e-487d-8107-5972ed57c657",
+      "name": "Get row(s) in sheet",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst registrosNuevos = $('Code in JavaScript1').all()\n  .map(item => item.json);\n\nconst filasExistentes = $input.all()\n  .map(item => item.json);\n\nconst idsExistentes = new Set(\n  filasExistentes\n    .map(fila => String(fila.id_registro ?? '').trim())\n    .filter(Boolean)\n);\n\nconst idsDelLote = new Set();\n\nreturn registrosNuevos.map(registro => {\n  const id = String(registro.id_registro ?? '').trim();\n\n  const duplicadoEnSheets = idsExistentes.has(id);\n  const duplicadoEnLote = idsDelLote.has(id);\n\n  if (id) {\n    idsDelLote.add(id);\n  }\n\n  return {\n    json: {\n      ...registro,\n      es_duplicado:\n        !id || duplicadoEnSheets || duplicadoEnLote,\n      estado_carga:\n        !id\n          ? 'REVISAR_SIN_ID'\n          : duplicadoEnSheets || duplicadoEnLote\n            ? 'DUPLICADO'\n            : 'NUEVO'\n    }\n  };\n});\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1264,
+        0
+      ],
+      "id": "b489f0eb-739b-48bb-bb17-fc0f7bd4435f",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "e179ebe5-018b-4740-807f-dd9d98d7ef71",
+              "leftValue": "={{ $json.estado_carga }}",
+              "rightValue": "=NUEVO",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.3,
+      "position": [
+        1488,
+        0
+      ],
+      "id": "692276d1-06b4-4222-9063-14bb7bf95dc8",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_PLANILLA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "CONFIGURAR_ID_DE_TU_HOJA",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telefono": "={{ $json.telefono }}",
+            "mensaje": "={{ $json.mensaje }}",
+            "fecha": "={{ $json.fecha }}",
+            "origen": "={{ $json.origen }}",
+            "numero_mensaje": "={{ $json.numero_mensaje }}",
+            "localidad": "={{ $json.localidad }}",
+            "milimetros": "={{ $json.milimetros }}",
+            "tipo_registro": "={{ $json.tipo_registro }}",
+            "requiere_revision": "={{ $json.requiere_revision }}",
+            "validado": "={{ $json.validado }}",
+            "id_registro": "={{ $json.id_registro }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "telefono",
+              "displayName": "telefono",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mensaje",
+              "displayName": "mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "fecha",
+              "displayName": "fecha",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "origen",
+              "displayName": "origen",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "numero_mensaje",
+              "displayName": "numero_mensaje",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "localidad",
+              "displayName": "localidad",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "milimetros",
+              "displayName": "milimetros",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "tipo_registro",
+              "displayName": "tipo_registro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requiere_revision",
+              "displayName": "requiere_revision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "validado",
+              "displayName": "validado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "id_registro",
+              "displayName": "id_registro",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1712,
+        0
+      ],
+      "id": "ff1a2f75-5b8a-42a2-ad1f-6280b732378a",
+      "name": "Append row in sheet"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "nodeGroups": [],
+  "tags": []
+}
