@@ -150,6 +150,18 @@ El archivo `Flujo_n8n_Chivilcoy_version_publicable.json` es una **exportación d
 
 No se publican credenciales ni números de teléfono reales en el flujo publicable.
 
+### Flujo experimental de recepción desde HTML
+
+También se incluye el archivo `Flujo_n8n_HTML_Webhook_version_publicable.json`, correspondiente a la prueba realizada el 23 de octubre de 2026.
+
+Este segundo flujo permite recibir mensajes ficticios desde una página HTML independiente mediante un webhook, interpretarlos utilizando Google Gemini, normalizar los resultados con JavaScript y consultar Google Sheets para identificar registros duplicados antes de incorporarlos.
+
+Durante las pruebas se verificó que tres mensajes previamente registrados fueron identificados como duplicados y descartados correctamente por el filtro de n8n.
+
+El archivo se publica con referencias de configuración reemplazadas por valores de ejemplo. Para reutilizarlo es necesario configurar las credenciales, la planilla de Google Sheets y el webhook en una instalación propia de n8n.
+
+Este flujo es experimental, no está conectado automáticamente con WhatsApp y tampoco se encuentra integrado con la interfaz demostrativa V5.
+
 ## 13. Evidencia visual
 
 - `01 - Flujo general n8n.png`: arquitectura general.
